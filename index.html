@@ -302,10 +302,18 @@ document.getElementById('reset').addEventListener('click',()=>{
   controls.search.value=''; controls.yearFrom.value=DATA.yearMin; controls.yearTo.value=DATA.yearMax;
   controls.minRecords.value=1; controls.minValue.value=1; updateData(); map.fitBounds([[-78,7],[22,68]],{padding:35,duration:700});
 });
-controls.search.addEventListener('change',()=>{
-  const name=controls.search.value.trim(); const meta=originMeta.get(name); if (!meta) return;
+function performPortSearch() {
+  const query=controls.search.value.trim();
+  const name=[...originMeta.keys()].find(key=>key.toLowerCase()===query.toLowerCase());
+  if (!name) return;
+  controls.search.value=name;
+  const meta=originMeta.get(name);
   map.flyTo({center:meta.coordinates,zoom:Math.max(map.getZoom(),5),duration:800});
   const summary=currentAggregates.get(name); if (summary) openPopup({properties:{name}},meta.coordinates);
+}
+controls.search.addEventListener('change',performPortSearch);
+controls.search.addEventListener('keydown',event=>{
+  if (event.key==='Enter') { event.preventDefault(); performPortSearch(); }
 });
 document.getElementById('mobile-toggle').addEventListener('click',()=>document.getElementById('sidebar').classList.toggle('open'));
 </script>

@@ -35,6 +35,10 @@
     .range-row { display:grid; grid-template-columns:1fr auto; gap:9px; align-items:center; }
     input[type="range"] { width:100%; accent-color:var(--line); }
     .range-value { min-width:38px; text-align:right; font-weight:750; }
+    .rank-scale { display:grid; grid-template-columns:repeat(11,1fr); margin:2px 42px 0 0; color:var(--muted); font-size:9px; line-height:1; }
+    .rank-scale span { text-align:center; }
+    .rank-scale span:first-child { text-align:left; }
+    .rank-scale span:last-child { text-align:right; }
     .button-row { display:flex; gap:8px; margin-top:12px; }
     button { border:1px solid var(--border); border-radius:9px; padding:8px 11px; background:white; color:var(--ink); cursor:pointer; }
     button:hover { background:#f0f5f4; }
@@ -43,6 +47,7 @@
     .legend-row { display:flex; align-items:center; gap:9px; }
     .swatch-line { width:30px; height:0; border-top:4px solid var(--line); border-radius:9px; }
     .swatch-port { width:11px; height:11px; border-radius:50%; background:var(--green); box-shadow:0 0 0 2px white,0 0 0 3px #205e42; }
+    .swatch-top { width:11px; height:11px; border-radius:50%; background:#f28c28; box-shadow:0 0 0 2px white,0 0 0 3px #9a4b08; }
     .swatch-home { width:15px; height:15px; border-radius:50%; background:var(--gold); border:3px solid #7d2442; }
     .coverage { display:grid; gap:7px; font-size:12px; }
     .coverage div { display:flex; justify-content:space-between; gap:12px; }
@@ -114,6 +119,12 @@
             <input id="min-records" type="range" min="1" max="50" value="1">
             <output id="min-records-value" class="range-value">1</output>
           </div>
+          <label for="top-rank">Top 10 highlight</label>
+          <div class="range-row">
+            <input id="top-rank" type="range" min="0" max="10" step="1" value="0">
+            <output id="top-rank-value" class="range-value">0</output>
+          </div>
+          <div class="rank-scale" aria-hidden="true"><span>0</span><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span></div>
           <div class="button-row">
             <button id="apply" class="primary" type="button">Apply filters</button>
             <button id="reset" type="button">Reset</button>
@@ -126,6 +137,7 @@
           <div class="legend">
             <div class="legend-row"><span class="swatch-line"></span><span>Thicker line = more records</span></div>
             <div class="legend-row"><span class="swatch-port"></span><span>Recorded voyage origin</span></div>
+            <div class="legend-row"><span class="swatch-top"></span><span>Selected top-ranked origin</span></div>
             <div class="legend-row"><span class="swatch-home"></span><span>Southampton voyage destination</span></div>
           </div>
         </div>
@@ -156,7 +168,8 @@ const originMeta = new Map(DATA.origins.map(d => [d.name, d]));
 const controls = {
   search: document.getElementById('origin-search'), yearFrom: document.getElementById('year-from'),
   yearTo: document.getElementById('year-to'), minRecords: document.getElementById('min-records'),
-  minValue: document.getElementById('min-records-value'), status: document.getElementById('filter-status')
+  minValue: document.getElementById('min-records-value'), topRank: document.getElementById('top-rank'),
+  topValue: document.getElementById('top-rank-value'), status: document.getElementById('filter-status')
 };
 controls.yearFrom.value = DATA.yearMin; controls.yearTo.value = DATA.yearMax;
 controls.yearFrom.min = DATA.yearMin; controls.yearFrom.max = DATA.yearMax;
@@ -215,12 +228,17 @@ function bearingTo(a, b) {
 function buildGeoJSON() {
   const {groups, from, to} = aggregateRecords();
   const threshold = Number(controls.minRecords.value);
+  const topN = Number(controls.topRank.value);
+  const ranked = [...groups.entries()]
+    .filter(([name,records])=>records.length>=threshold && originMeta.has(name))
+    .sort((a,b)=>b[1].length-a[1].length || a[0].localeCompare(b[0]));
+  const topNames = new Set(ranked.slice(0,topN).map(([name])=>name));
   const lineFeatures=[]; const pointFeatures=[]; const arrowFeatures=[]; currentAggregates=new Map();
   for (const [name, records] of groups) {
     if (records.length < threshold) continue;
     const meta=originMeta.get(name); if (!meta) continue;
     const summary=summarize(name,records); currentAggregates.set(name,summary);
-    const props={...summary, label:`${name} (${summary.count})`};
+    const props={...summary, isTop:topNames.has(name), label:`${name} (${summary.count})`};
     lineFeatures.push({type:'Feature',geometry:meta.geometry,properties:props});
     pointFeatures.push({type:'Feature',geometry:{type:'Point',coordinates:meta.coordinates},properties:props});
     const route=meta.geometry.coordinates;
@@ -229,7 +247,7 @@ function buildGeoJSON() {
       arrowFeatures.push({type:'Feature',geometry:{type:'Point',coordinates:route[arrowIndex]},properties:{...props,bearing:bearingTo(route[arrowIndex],route[arrowIndex+1])}});
     }
   }
-  controls.status.textContent = `${from}–${to} · ${threshold}+`;
+  controls.status.textContent = `${from}–${to} · ${threshold}+${topN?` · Top ${topN}`:''}`;
   document.getElementById('stat-connections').textContent = [...currentAggregates.values()].reduce((n,d)=>n+d.count,0).toLocaleString('en-GB');
   document.getElementById('stat-origins').textContent = currentAggregates.size.toLocaleString('en-GB');
   document.getElementById('stat-years').textContent = `${from}–${to}`;
@@ -256,7 +274,8 @@ function addDashboardLayers() {
     'text-rotation-alignment':'map','text-allow-overlap':true,'text-ignore-placement':true
   },paint:{'text-color':'#b72f57','text-opacity':.78,'text-halo-color':'rgba(255,255,255,.72)','text-halo-width':.7}});
   map.addLayer({id:'origins',type:'circle',source:'origins',paint:{
-    'circle-color':'#49b966','circle-stroke-color':'#143d2a','circle-stroke-width':1.3,
+    'circle-color':['case',['==',['get','isTop'],true],'#f28c28','#49b966'],
+    'circle-stroke-color':['case',['==',['get','isTop'],true],'#9a4b08','#143d2a'],'circle-stroke-width':1.3,
     'circle-radius':['interpolate',['linear'],['sqrt',['get','count']],1,4,11,10]
   }});
   map.addLayer({id:'southampton-halo',type:'circle',source:'southampton',paint:{'circle-color':'#f5bd3d','circle-opacity':.34,'circle-radius':18,'circle-stroke-color':'#f5bd3d','circle-stroke-width':3}});
@@ -299,10 +318,12 @@ map.on('load',()=>{
 });
 
 controls.minRecords.addEventListener('input',()=>controls.minValue.value=controls.minRecords.value);
+controls.topRank.addEventListener('input',()=>controls.topValue.value=controls.topRank.value);
 document.getElementById('apply').addEventListener('click',updateData);
 document.getElementById('reset').addEventListener('click',()=>{
   controls.search.value=''; controls.yearFrom.value=DATA.yearMin; controls.yearTo.value=DATA.yearMax;
-  controls.minRecords.value=1; controls.minValue.value=1; updateData(); map.fitBounds([[-78,7],[22,68]],{padding:35,duration:700});
+  controls.minRecords.value=1; controls.minValue.value=1; controls.topRank.value=0; controls.topValue.value=0;
+  updateData(); map.fitBounds([[-78,7],[22,68]],{padding:35,duration:700});
 });
 function performPortSearch() {
   const query=controls.search.value.trim();

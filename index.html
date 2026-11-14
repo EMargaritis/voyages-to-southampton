@@ -308,8 +308,9 @@ function performPortSearch() {
   if (!name) return;
   controls.search.value=name;
   const meta=originMeta.get(name);
-  map.flyTo({center:meta.coordinates,zoom:Math.max(map.getZoom(),5),duration:800});
-  const summary=currentAggregates.get(name); if (summary) openPopup({properties:{name}},meta.coordinates);
+  const summary=currentAggregates.get(name);
+  map.once('moveend',()=>{ if (summary) openPopup({properties:{name}},meta.coordinates); });
+  map.flyTo({center:meta.coordinates,zoom:Math.max(map.getZoom(),7),duration:800});
 }
 controls.search.addEventListener('change',performPortSearch);
 controls.search.addEventListener('keydown',event=>{
